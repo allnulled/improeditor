@@ -3,7 +3,7 @@
     "name": "Editor improvisado",
     "icons": [
       {
-        "src": "/favicon.ico",
+        "src": "./favicon.ico",
         "type": "image/png",
         "sizes": "512x512"
       }
