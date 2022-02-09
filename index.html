@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ImproEditor</title>
+    <script>
+        window.CONFIGURATIONS = {
+            RESET_MEMORY_ON_REFRESH: false,
+        };
+    </script>
+    <script src="./ranas-db.js"></script>
+    <script src="./vue2.min.js"></script>
+    <style>
+        html, body {
+            margin: 0;
+            padding: 0;
+            background-color: #444;
+            color: #CCC;
+        }
+        html, body, select, input, button, textarea {
+            font-size: 10px;
+        }
+        *, select, input, button, textarea {
+            font-family: Arial;
+        }
+        select, input, button, textarea {
+            width: 100%;
+            padding: 5px;
+            box-sizing: border-box;
+            border: 1px solid #444;
+            border-radius: 0pt;
+            overflow: hidden;
+            outline: none;
+        }
+        select:focus, input:focus, button:focus, textarea:focus {
+            border: 1px solid black;
+        }
+        textarea {
+            font-family: monospace;
+            font-size: 10px;
+            resize: vertical;
+        }
+        table th,
+        table td {
+            vertical-align: middle;
+        }
+        select.control {
+            resize: vertical;
+        }
+        button {
+            background-color: #DDD;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #AAA;
+        }
+        pre {
+            white-space: normal;
+        }
+        .overflow_scroll {
+            overflow: scroll;
+        }
+        .result-box {
+            background-color: rgb(150,215,150);
+            margin: 0;
+            margin-top: 5px;
+            padding: 5px;
+            color: black;
+        }
+        .error-box {
+            background-color: rgb(215,150,150);
+            margin: 0;
+            margin-top: 5px;
+            padding: 5px;
+            color: black;
+        }
+    </style>
+</head>
+<body>
+    <script type="template/text" id="AppComponent">
+        <table class="">
+            <tbody>
+                <tr>
+                    <td>
+                        <span>Fichero: </span>
+                    </td>
+                    <td style="width: 100%;">
+                        <select class="control" style="width: 100%;" id="selector_de_fichero" v-model="internal_selected_file">
+                            <option :value="option.ruta" v-for="(option, optionIndex) in internal_available_files" v-bind:key="'file-option-' + optionIndex">{{ option.ruta }}</option>
+                        </select>
+                    </td>
+                    <td>
+                        <button class="control" v-on:click="() => saveFile()">Guardar</button>
+                    </td>
+                </tr>
+                <tr v-if="internal_selected_file === 'Nuevo fichero'"">
+                    <td>
+                        <span>Nombre: </span>
+                    </td>
+                    <td style="width: 100%;" colspan="99">
+                        <input class="control" type="text" v-model="internal_filename_to_create" />
+                    </td>
+                </tr>
+                <tr>
+                    <td colspan="100">
+                        <textarea class="control" style="min-height: 200px; font-size: 9px; padding: 2px;" v-model="internal_selected_file_contents" spellcheck="false"></textarea>
+                    </td>
+                </tr>
+                <tr>
+                    <td colspan="1">
+                        <button class="control" v-on:click="() => deleteScript()">Eliminar</button>
+                    </td>
+                    <td colspan="99">
+                        <button class="control" v-on:click="() => executeScript()">Ejecutar</button>
+                    </td>
+                </tr>
+                <tr v-if="internal_error">
+                    <td colspan="100">
+                        <button class="control" v-on:click="() =>  clearError()">OK</button>
+                        <div class="overflow_scroll">
+                            <pre class="error-box">{{ internal_error.name }}: {{ internal_error.message }}</pre>
+                            <pre class="error-box">{{ JSON.stringify(internal_error.stack, null, 4) }}</pre>
+                        </div>
+                    </td>
+                </tr>
+                <tr v-if="internal_result">
+                    <td colspan="100">
+                        <div class="overflow_scroll">
+                            <pre class="result-box">{{ internal_result }}</pre>
+                        </div>
+                    </td>
+                </tr>
+            </tbody>
+        </table>
+    </script>
+    <div id="app"></div>
+    <script>
+        const utils = {
+            db: undefined,
+            showError: error => {
+                document.getElementById("error-box").textContent = JSON.stringify({
+                    name: error.name,
+                    message: error.message,
+                    stack: error.stack,
+                })
+            },
+            initializeDB: function() {
+                if(utils.db) {
+                    return utils.db;
+                }
+                const db = window.RanasDB.create("Ficheros", [{
+                    Fichero: "++id, &ruta",
+                }]);
+                utils.db = db;
+                return db.initialize();
+            },
+            getScriptContents(id) {
+                return document.getElementById(id).textContent;
+            }
+        };
+        window.addEventListener("load", async function() {
+            try {
+                if(CONFIGURATIONS.RESET_MEMORY_ON_REFRESH) {
+                    window.RanasDB.dropDatabaseIfExists("Ficheros");
+                }
+                const db = await utils.initializeDB();
+                Vue.prototype.$utils = utils;
+                Vue.prototype.$db = db;
+                const AppComponent = Vue.extend({
+                    template: utils.getScriptContents("AppComponent"),
+                    props: {
+                        availableFilesPreset: { type: Array, default: () => ([]) },
+                        selectedFilePreset: { type: String, default: () => "Nuevo fichero" },
+                    },
+                    data: function() {
+                        return {
+                            internal_filename_to_create: undefined,
+                            internal_available_files: [{ruta:"Nuevo fichero"}].concat(this.availableFilesPreset),
+                            internal_selected_file: this.selectedFilePreset,
+                            internal_selected_file_id: undefined,
+                            internal_selected_file_contents: undefined,
+                            internal_error: undefined,
+                            internal_result: undefined,
+                        };
+                    },
+                    methods: {
+                        showError(error) {
+                            this.internal_result = undefined;
+                            this.internal_error = error;
+                        },
+                        clearError() {
+                            this.internal_error = undefined;
+                        },
+                        clearResult() {
+                            this.internal_error = undefined;
+                            this.internal_result = undefined;
+                        },
+                        showResult(result) {
+                            this.internal_error = undefined;
+                            this.internal_result = JSON.stringify(result, null, 2);
+                        },
+                        async loadFiles() {
+                            try {
+                                const ficheros = await this.$db.select("Fichero", () => true);
+                                this.internal_available_files = [{ ruta: "Nuevo fichero" }].concat(ficheros);
+                            } catch (error) {
+                                this.showError(error);
+                            }
+                        },
+                        async deleteScript() {
+                            try {
+                                if(typeof this.internal_selected_file_id === 'undefined') {
+                                    return;
+                                }
+                                if(!window.confirm("Seguro que quieres eliminar el fichero " + this.internal_selected_file_id + "?")) {
+                                    return;
+                                }
+                                const ficheroId = parseInt(this.internal_selected_file_id);
+                                await this.$db.delete("Fichero", ficheroId);
+                                this.internal_selected_file = "Nuevo fichero";
+                                this.loadFiles();
+                            } catch (error) {
+                                this.showError(error);
+                            }
+                        },
+                        async executeScript() {
+                            try {
+                                const contenido = this.internal_selected_file_contents;
+                                const scriptCode = `(async function evaluable_function () {\n  try{\n    ${contenido}\n  }catch(error){\n    this.showError(error);\n  }\n})`;
+                                console.log("[*] Inyectando js: " + scriptCode.length + " characters");
+                                const intermediateFunction = window.eval(scriptCode);
+                                const resultado = await intermediateFunction.call(this);
+                                console.log("[*] Retornando js:", "(" + (typeof resultado) + ")", resultado);
+                                this.showResult(resultado);
+                            } catch (error) {
+                                this.showError(error);
+                            }
+                        },
+                        async saveFile() {
+                            try {
+                                const ruta = this.internal_selected_file === 'Nuevo fichero' ? this.internal_filename_to_create : this.internal_selected_file;
+                                console.log("Guardando fichero en:", ruta);
+                                if((typeof ruta !== "string") || (ruta === "")) {
+                                    throw new Error("Se requiere que el parámetro «ruta» sea un texto y no esté vacío");
+                                }
+                                const contenidos = this.internal_selected_file_contents;
+                                const filedata = { ruta, contenidos };
+                                const files = await this.$db.select("Fichero", item => item.ruta === filedata.ruta);
+                                let rutaFinal = undefined;
+                                if(files.length === 0) {
+                                    console.log("  [*] Creando fichero");
+                                    const ficheroId = await this.$db.insert("Fichero", filedata);
+                                    console.log("  [*] Creado fichero: " + ficheroId);
+                                    rutaFinal = filedata.ruta;
+                                    this.internal_selected_file_id = ficheroId;
+                                    this.internal_filename_to_create = "";
+                                } else if(files.length === 1) {
+                                    console.log("  [*] Actualizando fichero");
+                                    await this.$db.update("Fichero", files[0].id, filedata);
+                                    rutaFinal = files[0].ruta;
+                                    this.internal_selected_file_id = files[0].id;
+                                    console.log("  [*] Actualizado fichero: " + files[0].id);
+                                } else {
+                                    for(let index = 0; index < files.length; index++) {
+                                        console.log("  [*] Borrando duplicado de fichero " + index);
+                                        const file = files[index];
+                                        this.$db.delete("Fichero", file.ruta);
+                                    }
+                                    console.log("  [*] Creando fichero");
+                                    const ficheroId = await this.$db.insert("Fichero", filedata);
+                                    console.log("  [*] Creado fichero (sin duplicados): " + ficheroId);
+                                    rutaFinal = files[0].ruta;
+                                    this.internal_selected_file_id = files[0].id;
+                                }
+                                await this.loadFiles();
+                                this.internal_selected_file = rutaFinal;
+                            } catch (error) {
+                                this.showError(error);
+                            }
+                        }
+                    },
+                    watch: {
+                        internal_selected_file(v) {
+                            if(v === "Nuevo fichero") {
+                                this.internal_selected_file_id = undefined;
+                                this.internal_selected_file_contents = "";
+                            } else {
+                                const matchedFiles = this.internal_selected_file_contents = this.internal_available_files.filter(f => {
+                                    return f.ruta === v;
+                                });
+                                if(matchedFiles.length > 1) {
+                                    this.showError(new Error("Fichero duplicado."));
+                                } else if(matchedFiles.length === 0) {
+                                    this.showError(new Error("Fichero no encontrado"));
+                                } else {
+                                    this.internal_selected_file_id = matchedFiles[0].id;
+                                    this.internal_selected_file_contents = matchedFiles[0].contenidos;
+                                }
+                            }
+                        }
+                    },
+                    mounted() {
+                        this.loadFiles();
+                    },
+                });
+                const app = new AppComponent({
+                    availableFilesPreset: [],
+                    selectedFilePreset: "Nuevo fichero",
+                });
+                app.$mount("#app");
+            } catch (error) {
+                utils.showError(error);
+            }
+        });
+    </script>
+    <script>
+        if("serviceWorker" in navigator) {
+            window.addEventListener("load", function() {
+                this.navigator.serviceWorker
+                    .register("./service-worker-for-cache.js")
+                    .then(() => console.log("Cacheo de Service-Worker instalado correctamente."))
+                    .catch(error => console.error("Hubo errores instalando el cacheo de Service-Worker:", error))
+            })
+        }
+    </script>
+</body>
+</html>
