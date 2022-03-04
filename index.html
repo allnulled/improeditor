@@ -214,11 +214,10 @@
                                     throw new Error("File not found: " + f);
                                 }
                                 const code = this.wrapCode2(matched[0].contenidos);
-                                console.log("  [*] Inyectando js: " + code.length + " characters");
-                                console.log("  [*] Inyectando js 2: " + code + "");
+                                console.log("  [*] Importando js: " + code.length + " characters");
                                 const intermediateFunction = window.eval(code);
                                 const resultado = intermediateFunction.call(this);
-                                console.log("  [*] Retornando js:", "(" + (typeof resultado) + ")", resultado);
+                                console.log("  [*] Exportando js:", "(" + (typeof resultado) + ")", resultado);
                                 return resultado;
                             } catch (error) {
                                 console.error("Error on import:", error);
