@@ -107,7 +107,7 @@
                 </tr>
                 <tr>
                     <td colspan="100">
-                        <textarea class="control" style="min-height: 200px; font-size: 9px; padding: 2px;" v-model="internal_selected_file_contents" spellcheck="false"></textarea>
+                        <textarea class="control" style="min-height: 200px; font-size: 9px; padding: 2px;" v-model="internal_selected_file_contents" spellcheck="false" placeholder='this.import("module.js")'></textarea>
                     </td>
                 </tr>
                 <tr>
@@ -170,6 +170,7 @@
                 const db = await utils.initializeDB();
                 Vue.prototype.$utils = utils;
                 Vue.prototype.$db = db;
+                Vue.prototype.$vue = Vue;
                 const AppComponent = Vue.extend({
                     template: utils.getScriptContents("AppComponent"),
                     props: {
@@ -203,6 +204,28 @@
                             this.internal_error = undefined;
                             this.internal_result = JSON.stringify(result, null, 2);
                         },
+                        import(f) {
+                            try {
+                                const matched = this.internal_available_files.filter(file => file.ruta === f);
+                                if(matched.length > 1) {
+                                    throw new Error("File is not unique: " + f);
+                                }
+                                if(matched.length === 0) {
+                                    throw new Error("File not found: " + f);
+                                }
+                                const code = this.wrapCode2(matched[0].contenidos);
+                                console.log("  [*] Inyectando js: " + code.length + " characters");
+                                console.log("  [*] Inyectando js 2: " + code + "");
+                                const intermediateFunction = window.eval(code);
+                                const resultado = intermediateFunction.call(this);
+                                console.log("  [*] Retornando js:", "(" + (typeof resultado) + ")", resultado);
+                                return resultado;
+                            } catch (error) {
+                                console.error("Error on import:", error);
+                                console.log(JSON.stringify(this.internal_available_files, null, 4));
+                                this.showError(error);
+                            }
+                        },
                         async loadFiles() {
                             try {
                                 const ficheros = await this.$db.select("Fichero", () => true);
@@ -227,14 +250,20 @@
                                 this.showError(error);
                             }
                         },
+                        wrapCode1(contenidos) {
+                            return `(async function evaluable_function_1 () {\n  try{\n    ${contenidos}\n  }catch(error){\n    this.showError(error);\n  }\n})`;
+                        },
+                        wrapCode2(contenidos) {
+                            return `(async function evaluable_function_2 () {\n  try{\n    const module = {exports:undefined};\n    ${contenidos}\n    return module.exports;}catch(error){\n    this.showError(error);\n  }\n})`;
+                        },
                         async executeScript() {
                             try {
-                                const contenido = this.internal_selected_file_contents;
-                                const scriptCode = `(async function evaluable_function () {\n  try{\n    ${contenido}\n  }catch(error){\n    this.showError(error);\n  }\n})`;
-                                console.log("[*] Inyectando js: " + scriptCode.length + " characters");
+                                const contenidos = this.internal_selected_file_contents;
+                                const scriptCode = this.wrapCode1(contenidos);
+                                console.log("  [*] Inyectando js: " + scriptCode.length + " characters");
                                 const intermediateFunction = window.eval(scriptCode);
                                 const resultado = await intermediateFunction.call(this);
-                                console.log("[*] Retornando js:", "(" + (typeof resultado) + ")", resultado);
+                                console.log("  [*] Retornando js:", "(" + (typeof resultado) + ")", resultado);
                                 this.showResult(resultado);
                             } catch (error) {
                                 this.showError(error);
@@ -304,6 +333,7 @@
                         }
                     },
                     mounted() {
+                        this.$app = this;
                         this.loadFiles();
                     },
                 });
